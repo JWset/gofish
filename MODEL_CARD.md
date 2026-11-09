@@ -37,8 +37,8 @@ held-out evaluation. The models largely memorize their tiny corpora. They may
 loop, mix unrelated fragments, and generate nonsense on unfamiliar contexts.
 The fixed vocabulary rejects new characters rather than silently losing them.
 
-The corpora were authored for this project and are included under its MIT
-license. No external model weights or scraped datasets are bundled. Ollama
+The corpora were authored for this project and are included under the project's
+CC BY-SA 3.0 license. No external model weights or scraped datasets are bundled. Ollama
 models are separate downloads and retain their upstream licenses.
 
 ## Reproduction
@@ -95,8 +95,8 @@ go run ./examples/transformer
 go test ./transformer
 ```
 
-The original transformer corpus is MIT licensed with the project. No external
-model weights or datasets are included in this checkpoint.
+The original transformer corpus is CC BY-SA 3.0 licensed with the project. No
+external model weights or datasets are included in this checkpoint.
 
 ## Native GGUF fixture
 
@@ -113,7 +113,7 @@ cross entropy fell from 5.5511 to 0.0354 using native cached inference evaluatio
 These are memorization results, not held-out language benchmarks.
 
 Rebuild with `go run ./internal/pretrain-llama`; run with `go run ./examples/gguf`.
-The corpus, code and bundled original weights use the project's MIT license.
+The corpus, code and bundled original weights use the project's CC BY-SA 3.0 license.
 Native cache logits are tested against full-sequence autograd logits, including
 GQA and rotary embeddings. Export/reload and fine-tuning are tested. External
 third-party pretrained Llama checkpoints have not been executed here.

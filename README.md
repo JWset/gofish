@@ -443,7 +443,8 @@ contracts. Adapter tests use in-process HTTP transports and do not download or
 execute a real instruction model.
 
 The three pretraining commands regenerate all four bundled checkpoints from the
-included original corpora. There are no external training datasets. MIT licensed.
+included original corpora. There are no external training datasets. GoFish source
+code and original bundled materials are licensed under [CC BY-SA 3.0](LICENSE).
 
 The attention calculation follows [scaled dot-product attention](https://arxiv.org/abs/1706.03762);
 the native block uses a decoder-only pre-normalization layout. The layer-normalization
