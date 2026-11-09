@@ -7,10 +7,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/JWset/gofish/generation"
 	"github.com/JWset/gofish/internal/checkpoint"
+	"github.com/JWset/gofish/llama"
 	"github.com/JWset/gofish/lm"
 	"github.com/JWset/gofish/ollama"
 	"github.com/JWset/gofish/tensor"
@@ -27,6 +29,8 @@ var Randn = tensor.Randn
 
 type Config = lm.Config
 type TransformerConfig = transformer.Config
+type LlamaConfig = llama.Config
+type GGUFOptions = llama.LoadOptions
 type TrainOptions = lm.TrainOptions
 type History = lm.History
 type Step = lm.Step
@@ -53,8 +57,9 @@ type nativeModel interface {
 	Parameters() []*tensor.Tensor
 }
 type Model struct {
-	native nativeModel
-	remote *ollama.Model
+	native  nativeModel
+	remote  *ollama.Model
+	weights *llama.Model
 }
 type Capabilities struct {
 	Train bool
@@ -64,6 +69,9 @@ type Capabilities struct {
 }
 
 func (m *Model) Capabilities() Capabilities {
+	if m.weights != nil {
+		return Capabilities{Train: m.weights.CanTrain(), Save: m.weights.CanTrain()}
+	}
 	return Capabilities{Train: m.native != nil, Save: m.native != nil, Pull: m.remote != nil, Chat: m.remote != nil}
 }
 
@@ -75,6 +83,13 @@ func Load(nameOrPath string) (*Model, error) {
 	}
 	if nameOrPath == "tiny" {
 		nameOrPath = "tiny-stories"
+	}
+	if nameOrPath == "tiny-llama" {
+		m, err := llama.Pretrained()
+		if err != nil {
+			return nil, err
+		}
+		return &Model{weights: m}, nil
 	}
 	if nameOrPath == "tiny-transformer" {
 		m, err := transformer.Pretrained()
@@ -89,6 +104,16 @@ func Load(nameOrPath string) (*Model, error) {
 			return nil, err
 		}
 		return &Model{native: m}, nil
+	}
+	f, err := os.Open(nameOrPath)
+	if err != nil {
+		return nil, err
+	}
+	var magic [4]byte
+	n, _ := f.Read(magic[:])
+	f.Close()
+	if n == 4 && string(magic[:]) == "GGUF" {
+		return LoadGGUF(nameOrPath)
 	}
 	format, err := checkpoint.Format(nameOrPath)
 	if err != nil {
@@ -109,6 +134,29 @@ func Load(nameOrPath string) (*Model, error) {
 	return &Model{native: model}, nil
 }
 
+// LoadGGUF loads the supported Llama GGUF subset directly, without an external runtime.
+func LoadGGUF(path string, options ...GGUFOptions) (*Model, error) {
+	if len(options) > 1 {
+		return nil, fmt.Errorf("gofish: LoadGGUF accepts at most one options struct")
+	}
+	var config GGUFOptions
+	if len(options) == 1 {
+		config = options[0]
+	}
+	m, err := llama.LoadWithOptions(path, config)
+	if err != nil {
+		return nil, err
+	}
+	return &Model{weights: m}, nil
+}
+func NewLlama(config LlamaConfig) (*Model, error) {
+	m, err := llama.NewByteModel(config)
+	if err != nil {
+		return nil, err
+	}
+	return &Model{weights: m}, nil
+}
+
 // NewTransformer initializes a byte-tokenized decoder for native CPU training.
 func NewTransformer(config TransformerConfig) (*Model, error) {
 	m, err := transformer.New(config)
@@ -120,6 +168,9 @@ func NewTransformer(config TransformerConfig) (*Model, error) {
 
 // ParameterCount reports native parameter count; Ollama models are external and return zero.
 func (m *Model) ParameterCount() int {
+	if m.weights != nil {
+		return m.weights.ParameterCount()
+	}
 	if m.native == nil {
 		return 0
 	}
@@ -144,6 +195,9 @@ func Ollama(name string, options ...ollama.Option) (*Model, error) {
 	return &Model{remote: m}, nil
 }
 func (m *Model) Generate(ctx context.Context, prompt string, options ...GenerateOption) (string, error) {
+	if m.weights != nil {
+		return m.weights.Generate(ctx, prompt, options...)
+	}
 	if m.native != nil {
 		return m.native.Generate(ctx, prompt, options...)
 	}
@@ -153,12 +207,24 @@ func (m *Model) Generate(ctx context.Context, prompt string, options ...Generate
 	return "", fmt.Errorf("gofish: uninitialized model")
 }
 func (m *Model) Train(ctx context.Context, text string, options TrainOptions) (History, error) {
+	if m.weights != nil {
+		if !m.weights.CanTrain() {
+			return History{}, fmt.Errorf("%w: native GGUF training is limited to 2 million parameters", ErrUnsupported)
+		}
+		return m.weights.Train(ctx, text, options)
+	}
 	if m.native == nil {
 		return History{}, fmt.Errorf("%w: training requires a native model; Ollama fine-tuning is not implemented", ErrUnsupported)
 	}
 	return m.native.Train(ctx, text, options)
 }
 func (m *Model) Save(path string) error {
+	if m.weights != nil {
+		if !m.weights.CanTrain() {
+			return fmt.Errorf("%w: GGUF export is limited to 2 million parameters", ErrUnsupported)
+		}
+		return m.weights.Save(path)
+	}
 	if m.native == nil {
 		return fmt.Errorf("%w: Save requires a native model", ErrUnsupported)
 	}
@@ -177,6 +243,9 @@ func (m *Model) Chat(ctx context.Context, messages []Message, options ...Generat
 	return m.remote.Chat(ctx, messages, options...)
 }
 func (m *Model) Loss(ctx context.Context, text string) (float64, error) {
+	if m.weights != nil {
+		return m.weights.Loss(ctx, text)
+	}
 	if m.native == nil {
 		return 0, fmt.Errorf("%w: Loss requires a native model", ErrUnsupported)
 	}

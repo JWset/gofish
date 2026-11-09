@@ -1,5 +1,14 @@
 # Changes
 
+## Native GGUF expansion
+
+- Add bounded GGUF v2/v3 parsing, lazy tensor reads, a v3 writer and ten weight encodings.
+- Add native Llama inference with RMSNorm, RoPE, GQA, SwiGLU and a bounded KV cache.
+- Add SentencePiece BPE with byte fallback and explicit unsupported-variant errors.
+- Fine-tune small GGUF models and export F32 weights; large models are inference-only.
+- Bundle an original trained GGUF fixture and add file inspection to the CLI.
+- Check cache/full-sequence parity, quantization layouts, export/reload, training and parser fuzz seeds.
+
 ## Native transformer expansion
 
 - Add a trainable byte-level decoder with causal multi-head attention, learned

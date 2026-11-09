@@ -16,3 +16,4 @@ jobs:
       - run: go run ./examples/tiny
       - run: go run ./examples/xor
       - run: go run ./examples/transformer
+      - run: go run ./examples/gguf

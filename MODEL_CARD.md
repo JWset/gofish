@@ -1,7 +1,7 @@
 # Bundled native models
 
-GoFish includes three trained checkpoints. They ship as embedded gzip-compressed
-JSON under `lm/assets` and `transformer/assets` and run offline.
+GoFish includes four trained checkpoints. They ship as embedded gzip-compressed
+JSON under `lm/assets`, `transformer/assets`, and `llama/assets` and run offline.
 
 | Model | Corpus | Intended use |
 | --- | --- | --- |
@@ -97,3 +97,23 @@ go test ./transformer
 
 The original transformer corpus is MIT licensed with the project. No external
 model weights or datasets are included in this checkpoint.
+
+## Native GGUF fixture
+
+`tiny-llama` is an original 25,760-parameter Llama-shaped model stored in
+`llama/assets/tiny-llama.gguf`. It uses width 32, one block, four query heads,
+two KV heads, rotary dimension 8, context 32, feed-forward width 64, RMSNorm
+and SwiGLU. Weights are F32 and the tokenizer is custom `gofish-byte` (257 IDs).
+It is not a Meta pretrained checkpoint and is not guaranteed to load in a
+third-party GGUF runtime with no support for that tokenizer.
+
+It was trained on `lm/corpora/tiny-stories.txt` for 2,400 updates, using batch 4,
+AdamW at 0.003, weight decay 0.01, clip norm 1, and seed 42. Mean training-corpus
+cross entropy fell from 5.5511 to 0.0354 using native cached inference evaluation.
+These are memorization results, not held-out language benchmarks.
+
+Rebuild with `go run ./internal/pretrain-llama`; run with `go run ./examples/gguf`.
+The corpus, code and bundled original weights use the project's MIT license.
+Native cache logits are tested against full-sequence autograd logits, including
+GQA and rotary embeddings. Export/reload and fine-tuning are tested. External
+third-party pretrained Llama checkpoints have not been executed here.

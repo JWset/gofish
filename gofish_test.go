@@ -118,3 +118,27 @@ func TestTransformerPublicAPI(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestGGUFPublicAPI(t *testing.T) {
+	m, err := gofish.Load("tiny-llama")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.ParameterCount() != 25760 || !m.Capabilities().Train {
+		t.Fatal("GGUF capabilities")
+	}
+	path := filepath.Join(t.TempDir(), "export.gguf")
+	if err = m.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	m, err = gofish.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = m.Train(context.Background(), "hello fish", gofish.TrainOptions{Steps: 1, BatchSize: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = m.Generate(context.Background(), "你好", gofish.WithMaxTokens(4)); err != nil {
+		t.Fatal(err)
+	}
+}

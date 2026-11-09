@@ -11,6 +11,7 @@ type ModelInfo struct {
 // the ollama: prefix, beyond the two suggested pretrained sizes listed here.
 func Models() []ModelInfo {
 	return []ModelInfo{
+		{Name: "tiny-llama", Description: "Bundled GGUF Llama-shaped model with GQA and KV caching; custom byte tokenizer", Bundled: true, Trainable: true},
 		{Name: "tiny-transformer", Description: "Bundled byte-level causal transformer; trainable CPU demonstration", Bundled: true, Trainable: true},
 		{Name: "tiny-stories", Description: "Bundled character model trained on a short fish story; demonstration only", Bundled: true, Trainable: true},
 		{Name: "tiny-dialogue", Description: "Bundled character model trained on a handful of dialogue examples; demonstration only", Bundled: true, Trainable: true},

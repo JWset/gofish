@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/JWset/gofish"
+	"github.com/JWset/gofish/gguf"
 	"github.com/JWset/gofish/ollama"
 )
 
@@ -27,7 +28,7 @@ func main() {
 }
 func run(ctx context.Context, args []string, in io.Reader, out, diagnostics io.Writer) error {
 	if len(args) == 0 {
-		fmt.Fprintln(out, "GoFish: generate | train | chat | pull | models\nTry: gofish generate -prompt 'the sun was'")
+		fmt.Fprintln(out, "GoFish: generate | train | chat | pull | models | inspect\nTry: gofish generate -model tiny-llama -prompt 'the little fish'")
 		return nil
 	}
 	if args[0] == "models" {
@@ -55,8 +56,9 @@ func run(ctx context.Context, args []string, in io.Reader, out, diagnostics io.W
 	contextSize := flags.Int("context", 0, "new model context length; 0 uses architecture default")
 	width := flags.Int("width", 32, "new transformer embedding width")
 	heads := flags.Int("heads", 4, "new transformer attention heads")
+	kvHeads := flags.Int("kv-heads", 0, "new Llama key/value heads; 0 uses head count")
 	layers := flags.Int("layers", 2, "new transformer decoder blocks")
-	feedForward := flags.Int("ff", 0, "new transformer feed-forward width; 0 uses 4*width")
+	feedForward := flags.Int("ff", 0, "new model feed-forward width; 0 uses architecture default")
 	embedding := flags.Int("embedding", 8, "embedding width for a new native model")
 	hidden := flags.Int("hidden", 64, "hidden width for a new native model")
 	host := flags.String("host", "http://localhost:11434", "Ollama server URL")
@@ -70,7 +72,7 @@ func run(ctx context.Context, args []string, in io.Reader, out, diagnostics io.W
 	if flags.NArg() > 0 {
 		return fmt.Errorf("gofish: unexpected arguments: %s", strings.Join(flags.Args(), " "))
 	}
-	if args[0] != "generate" && args[0] != "train" && args[0] != "chat" && args[0] != "pull" {
+	if args[0] != "generate" && args[0] != "train" && args[0] != "chat" && args[0] != "pull" && args[0] != "inspect" {
 		return fmt.Errorf("gofish: unknown command %q", args[0])
 	}
 	if *timeout <= 0 {
@@ -78,9 +80,23 @@ func run(ctx context.Context, args []string, in io.Reader, out, diagnostics io.W
 	}
 	ctx, cancel := context.WithTimeout(ctx, *timeout)
 	defer cancel()
+	if args[0] == "inspect" {
+		file, err := gguf.Open(*modelName)
+		if err != nil {
+			return err
+		}
+		defer file.Close()
+		fmt.Fprintf(out, "GGUF v%d | architecture=%s | tokenizer=%s | tensors=%d\n", file.Version, file.String("general.architecture", "unknown"), file.String("tokenizer.ggml.model", "unknown"), len(file.Tensors))
+		for _, t := range file.Tensors {
+			fmt.Fprintf(out, "%-6s %-18v %s\n", t.Type, t.Dimensions, t.Name)
+		}
+		return nil
+	}
 	var model *gofish.Model
 	var err error
-	if args[0] == "train" && *modelName == "new-transformer" {
+	if args[0] == "train" && *modelName == "new-llama" {
+		model, err = gofish.NewLlama(gofish.LlamaConfig{ContextSize: *contextSize, Width: *width, Heads: *heads, KVHeads: *kvHeads, Layers: *layers, FeedForward: *feedForward, Seed: *seed})
+	} else if args[0] == "train" && *modelName == "new-transformer" {
 		model, err = gofish.NewTransformer(gofish.TransformerConfig{ContextSize: *contextSize, Width: *width, Heads: *heads, Layers: *layers, FeedForward: *feedForward, Seed: *seed})
 	} else if args[0] == "train" && *modelName == "new" {
 		if *dataPath == "" {
@@ -93,6 +109,8 @@ func run(ctx context.Context, args []string, in io.Reader, out, diagnostics io.W
 		model, err = gofish.NewLanguageModel(string(data), gofish.Config{ContextSize: *contextSize, EmbeddingSize: *embedding, HiddenSize: *hidden, Seed: *seed})
 	} else if strings.HasPrefix(*modelName, "ollama:") {
 		model, err = gofish.Ollama(strings.TrimPrefix(*modelName, "ollama:"), ollama.WithBaseURL(*host))
+	} else if strings.HasSuffix(strings.ToLower(*modelName), ".gguf") {
+		model, err = gofish.LoadGGUF(*modelName, gofish.GGUFOptions{ContextSize: *contextSize})
 	} else {
 		model, err = gofish.Load(*modelName)
 	}

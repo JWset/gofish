@@ -5,7 +5,7 @@ API key, or third-party Go dependencies are needed for the native backend.
 
 **This is a small, working first version inspired by PyTorch, not a complete
 PyTorch replacement.** Native training uses CPU float64 tensors. It includes a
-byte-level decoder transformer, two small character models, and an Ollama adapter for running larger
+byte-level decoder transformer, native GGUF Llama inference, two character models, and an Ollama adapter for running larger
 pretrained instruction models. Ollama models are inference-only in GoFish.
 
 ## Try it now
@@ -15,12 +15,13 @@ From this repository, with Go 1.22 or later:
 ```sh
 go run ./examples/tiny
 go run ./examples/transformer
+go run ./examples/gguf
 go run ./examples/xor
 go run ./cmd/gofish models
 go run ./cmd/gofish generate -prompt "the sun was" -temperature 0
 ```
 
-All three tiny models run immediately, with no downloads. Their trained weights
+All four tiny models run immediately, with no downloads. Their trained weights
 are embedded in the module. They generate patterns from small training corpora;
 they are not general-purpose chatbots. See [MODEL_CARD.md](MODEL_CARD.md).
 
@@ -181,6 +182,73 @@ UTF-8, so both the returned text and streamed chunks contain complete characters
 The lower-level `transformer.Model` also exposes differentiable `Forward` and
 `Parameters` methods for custom training loops. See [examples/transformer](examples/transformer/main.go).
 
+## Native GGUF Llama models
+
+Run the bundled GGUF demonstration without Ollama, Python or CGO:
+
+```sh
+go run ./examples/gguf
+go run ./cmd/gofish generate -model tiny-llama -prompt "the little fish" -temperature 0
+```
+
+Or load a supported local file:
+
+```go
+model, err := gofish.Load("my-model.gguf")
+// Optional explicit limits:
+model, err = gofish.LoadGGUF("my-model.gguf", gofish.GGUFOptions{
+    ContextSize:   512,
+    MaxModelBytes: 2 << 30,
+    MaxCacheBytes: 256 << 20,
+})
+```
+
+The loader supports little-endian GGUF v2/v3, architecture `llama`, Llama-style
+SentencePiece BPE with byte fallback, RMSNorm, SwiGLU, interleaved RoPE and
+grouped-query attention. Encodings are F32, F16, BF16, Q4_0, Q4_1, Q5_0, Q5_1,
+Q8_0, Q4_K and Q6_K. Quantized matrices stay packed; CPU matrix-vector operations
+decode blocks into scratch storage. There is no GPU acceleration.
+
+Each generation request has a bounded KV cache with absolute rotary positions.
+Old entries are evicted when the context fills. Default limits are 2 GiB of
+encoded model weights, 256 MiB of cache, and the smaller of declared context and
+2048 tokens. `llama.Model.NewSession` exposes incremental token stepping.
+
+This targets the original Llama/TinyLlama layout. GPT-2 tokenizers (including
+Llama 3), Qwen/Gemma architectures, MoE, bias tensors, custom rotary-frequency
+tensors, noncausal attention, sharded files and RoPE scaling other than none or
+linear are rejected. Compatibility is validated with generated GGUF fixtures,
+quantization bit-pattern tests, SentencePiece merge tests, and cached logits
+compared with a separate full-sequence autograd path. **A downloaded third-party
+Llama/TinyLlama checkpoint has not been executed in this environment.**
+
+Inspect a file without loading its weight payloads:
+
+```sh
+go run ./cmd/gofish inspect -model my-model.gguf
+```
+
+Small GGUF models with at most 2 million parameters support `Train` and `Save`.
+Training dequantizes weights into GoFish autograd, starts fresh AdamW state and
+exports F32 GGUF; optimizer resume is available in the custom transformer backend,
+not GGUF. Large GGUF models expose inference only. `Capabilities()` reports this.
+Source license/provenance metadata is retained when supported by the writer;
+model licenses remain the user's responsibility.
+
+```sh
+go run ./cmd/gofish train -model new-llama -data my-text.txt -steps 500 -out my-model.gguf
+go run ./cmd/gofish train -model tiny-llama -data lm/corpora/tiny-stories.txt -steps 100 -out tuned.gguf
+```
+
+`gofish.NewLlama` creates a small Llama-shaped byte model. Its tokenizer is the
+custom `gofish-byte` type: third-party GGUF runtimes require explicit support for
+that tokenizer. The bundled `tiny-llama` uses this type and is an original GoFish
+training demonstration, not Meta model weights or a general assistant.
+
+The low-level `gguf` package also provides lazy tensor inspection, bounded reads,
+quantized matrix-vector operations, and a deterministic GGUF v3 writer. The
+format follows the [upstream GGUF specification](https://github.com/ggml-org/ggml/blob/master/docs/gguf.md).
+
 ## Run a larger pretrained model
 
 Install [Ollama](https://ollama.com/download) and start its server (`ollama serve`)
@@ -279,8 +347,8 @@ go run ./cmd/gofish train -model tiny-stories -data lm/corpora/tiny-stories.txt 
 
 The character models use a fixed-context embedding/MLP architecture; the byte
 model is a decoder transformer. Both are suitable for small CPU experiments.
-GoFish cannot load Hugging Face, PyTorch, GGUF, or ONNX weights into its native
-training backend. Limits are 5 million parameters for character models and 2
+The custom transformer backend cannot load Hugging Face, PyTorch, or ONNX weights.
+The separate native Llama backend reads the supported GGUF subset described below. Limits are 5 million parameters for character models and 2
 million for transformers, with an additional training activation budget. The
 transformer uses full attention and recomputes its context during generation;
 KV caching, GPU training, and fine-tuning Qwen/Llama are not implemented.
@@ -319,6 +387,8 @@ Available packages:
 | `tensor` | Dense float64 tensors, broadcasting, batched matrix multiply, reshape, permute, slice, gather, activations, layer normalization, causal attention, losses, autograd |
 | `nn` | Linear, Embedding, Sequential, ReLU, Tanh, Sigmoid, GELU, LayerNorm, MultiHeadAttention, TransformerBlock, weight checkpoints |
 | `optim` | SGD, Adam, AdamW, serializable optimizer state, global gradient norm clipping |
+| `gguf` | Lazy GGUF reader, writer, dequantization and packed matrix-vector operations |
+| `llama` | Native Llama inference, SentencePiece, KV sessions, small-model training and GGUF export |
 | `lm` | Native character-model architecture, vocabulary, training and compressed checkpoints |
 | `transformer` | Native byte decoder, pretrained weights, training, resumable checkpoints and UTF-8 generation |
 | `tokenizer` | Lossless byte tokenization, BOS token and UTF-8 prefix validation |
@@ -372,7 +442,7 @@ convergence, exact optimizer resume, checkpoint corruption, and Ollama request/r
 contracts. Adapter tests use in-process HTTP transports and do not download or
 execute a real instruction model.
 
-The two pretraining commands regenerate all three bundled checkpoints from the
+The three pretraining commands regenerate all four bundled checkpoints from the
 included original corpora. There are no external training datasets. MIT licensed.
 
 The attention calculation follows [scaled dot-product attention](https://arxiv.org/abs/1706.03762);
