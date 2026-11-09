@@ -4,10 +4,36 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/JWset/gofish"
 )
+
+func TestConcurrentNativeOperations(t *testing.T) {
+	m, err := gofish.Load("tiny-stories")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var group sync.WaitGroup
+	for i := 0; i < 4; i++ {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			if _, err := m.Generate(context.Background(), "the sun was", gofish.WithMaxTokens(20)); err != nil {
+				t.Error(err)
+			}
+		}()
+	}
+	group.Add(1)
+	go func() {
+		defer group.Done()
+		if _, err := m.Train(context.Background(), "the sun was warm.\n", gofish.TrainOptions{Steps: 2}); err != nil {
+			t.Error(err)
+		}
+	}()
+	group.Wait()
+}
 
 func TestPublicAPI(t *testing.T) {
 	ctx := context.Background()
