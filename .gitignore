@@ -1,0 +1,4 @@
+/gofish
+/coverage.out
+*.prof
+/checkpoints/

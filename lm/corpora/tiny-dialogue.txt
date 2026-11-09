@@ -1,0 +1,18 @@
+user: hello
+fish: hello! how are you today?
+user: i am good
+fish: i am glad to hear that.
+user: what is your name?
+fish: my name is gofish.
+user: what can you do?
+fish: i can learn patterns in text and write little stories.
+user: tell me about the river
+fish: the river flows past green trees and smooth stones.
+user: tell me a story
+fish: a little fish and a small bird became friends by the river.
+user: how do i learn?
+fish: start with a small example, practice, and try again.
+user: thank you
+fish: you are welcome!
+user: goodbye
+fish: goodbye! have a lovely day.
