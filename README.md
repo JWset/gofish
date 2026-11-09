@@ -8,6 +8,14 @@ PyTorch replacement.** Native training uses CPU float64 tensors. It includes a
 byte-level decoder transformer, native GGUF Llama inference, two character models, and an Ollama adapter for running larger
 pretrained instruction models. Ollama models are inference-only in GoFish.
 
+## Credit and license
+
+GoFish was created by **JWset**. If you share GoFish or a modified version,
+please credit it as “GoFish by JWset,” link to
+[github.com/JWset/gofish](https://github.com/JWset/gofish), keep the
+[CC BY-SA 3.0 license](LICENSE), and note any changes you made. The license
+allows commercial use; shared adaptations must use the same license.
+
 ## Try it now
 
 From this repository, with Go 1.22 or later:
