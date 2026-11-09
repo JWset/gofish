@@ -131,6 +131,12 @@ type History = training.History
 // Train performs mini-batch Adam updates, including on previously loaded models.
 // Each call starts a fresh Adam optimizer. Steps are updates, not corpus epochs.
 func (m *Model) Train(ctx context.Context, corpus string, options TrainOptions) (History, error) {
+	if err := training.ValidateDevice(options.Device); err != nil {
+		return training.History{}, err
+	}
+	if options.Device == training.GPU {
+		return training.History{}, fmt.Errorf("gofish: GPU training currently requires NewTransformer; this model supports CPU training")
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	history := History{}

@@ -1,5 +1,13 @@
 # Changes
 
+## CUDA training
+
+- Add `TrainOptions.Device`: `gofish.CPU` (default) or `gofish.GPU`.
+- CUDA builds train byte transformers with float32 forward/backprop, clipping and AdamW on NVIDIA GPUs through GoMLX/XLA.
+- Preserve native checkpoint compatibility and optimizer resume across devices.
+- Add CLI `train -device cpu|gpu` and [GPU setup instructions](GPU.md).
+- Require Go 1.27 for the pinned accelerator dependencies.
+
 ## Native GGUF expansion
 
 - Add bounded GGUF v2/v3 parsing, lazy tensor reads, a v3 writer and ten weight encodings.

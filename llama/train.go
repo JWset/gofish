@@ -215,6 +215,12 @@ func (m *Model) syncWeights(p map[string]*tensor.Tensor) error {
 // backend. It starts fresh AdamW state. Saving exports float32 weights, without
 // optimizer moments; Resume is unsupported for this GGUF path.
 func (m *Model) Train(ctx context.Context, corpus string, options training.Options) (history training.History, err error) {
+	if err := training.ValidateDevice(options.Device); err != nil {
+		return training.History{}, err
+	}
+	if options.Device == training.GPU {
+		return training.History{}, fmt.Errorf("gofish: GPU training currently requires NewTransformer; this model supports CPU training")
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if err = ctx.Err(); err != nil {

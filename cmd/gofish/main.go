@@ -48,6 +48,7 @@ func run(ctx context.Context, args []string, in io.Reader, out, diagnostics io.W
 	topP := flags.Float64("top-p", 1, "nucleus probability threshold")
 	dataPath := flags.String("data", "", "UTF-8 training corpus")
 	outputPath := flags.String("out", "model.gofish", "native checkpoint destination")
+	device := flags.String("device", "cpu", "training processor: cpu or gpu (CUDA build required)")
 	steps := flags.Int("steps", 500, "number of Adam updates")
 	batch := flags.Int("batch", 0, "training batch size; 0 uses backend default")
 	rate := flags.Float64("lr", 0, "learning rate; 0 uses backend default")
@@ -141,7 +142,7 @@ func run(ctx context.Context, args []string, in io.Reader, out, diagnostics io.W
 		if err != nil {
 			return err
 		}
-		_, err = model.Train(ctx, string(data), gofish.TrainOptions{Steps: *steps, BatchSize: *batch, LearningRate: *rate, Seed: *seed, Resume: *resume, WeightDecay: *decay, OnStep: func(s gofish.Step) {
+		_, err = model.Train(ctx, string(data), gofish.TrainOptions{Device: gofish.Device(*device), Steps: *steps, BatchSize: *batch, LearningRate: *rate, Seed: *seed, Resume: *resume, WeightDecay: *decay, OnStep: func(s gofish.Step) {
 			if s.Number == 1 || s.Number%100 == 0 || s.Number == *steps {
 				fmt.Fprintf(diagnostics, "step=%d loss=%.4f\n", s.Number, s.Loss)
 			}

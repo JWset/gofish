@@ -1,10 +1,11 @@
 # GoFish
 
-Tensors, autograd, neural networks, and text generation in Go. No Python, CGO,
-API key, or third-party Go dependencies are needed for the native backend.
+Tensors, autograd, neural networks, and text generation in Go. The CPU backend
+uses the Go standard library. Optional NVIDIA GPU training uses GoMLX/XLA;
+see [GPU training](GPU.md). No Python program or API key is needed.
 
 **This is a small, working first version inspired by PyTorch, not a complete
-PyTorch replacement.** Native training uses CPU float64 tensors. It includes a
+PyTorch replacement.** CPU training uses float64 tensors; CUDA transformer training uses float32. It includes a
 byte-level decoder transformer, native GGUF Llama inference, two character models, and an Ollama adapter for running larger
 pretrained instruction models. Ollama models are inference-only in GoFish.
 
@@ -17,7 +18,7 @@ allowed. Apps that simply import GoFish do not have to display a credit.
 
 ## Try it now
 
-From this repository, with Go 1.22 or later:
+From this repository, with Go 1.27 or later:
 
 ```sh
 go run ./examples/tiny

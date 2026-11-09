@@ -16,6 +16,7 @@ import (
 	"github.com/JWset/gofish/lm"
 	"github.com/JWset/gofish/ollama"
 	"github.com/JWset/gofish/tensor"
+	"github.com/JWset/gofish/training"
 	"github.com/JWset/gofish/transformer"
 )
 
@@ -31,6 +32,13 @@ type Config = lm.Config
 type TransformerConfig = transformer.Config
 type LlamaConfig = llama.Config
 type GGUFOptions = llama.LoadOptions
+type Device = training.Device
+
+const (
+	CPU = training.CPU
+	GPU = training.GPU
+)
+
 type TrainOptions = lm.TrainOptions
 type History = lm.History
 type Step = lm.Step

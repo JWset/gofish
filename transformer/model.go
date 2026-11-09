@@ -1,7 +1,7 @@
-// Package transformer implements a small decoder-only language model in pure Go.
+// Package transformer implements a small decoder-only language model in Go.
 // It uses byte tokens, learned positions, causal multi-head attention, pre-layer
 // normalization, GELU feed-forward layers and residual connections. It is intended
-// for CPU experiments, not as a replacement for an optimized large-model runtime.
+// for small-model experiments. Optional CUDA training is enabled with -tags cuda.
 package transformer
 
 import (
@@ -167,6 +167,9 @@ func (m *Model) Train(ctx context.Context, corpus string, options training.Optio
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	history := training.History{}
+	if err := training.ValidateDevice(options.Device); err != nil {
+		return history, err
+	}
 	if err := ctx.Err(); err != nil {
 		return history, err
 	}
@@ -202,6 +205,9 @@ func (m *Model) Train(ctx context.Context, corpus string, options training.Optio
 	activationBudget := int64(options.BatchSize) * int64(m.config.Layers) * int64(16*time*m.config.Width+m.config.Heads*time*time)
 	if activationBudget > 16000000 {
 		return history, fmt.Errorf("gofish: training batch exceeds native activation budget; reduce batch size or context")
+	}
+	if options.Device == training.GPU {
+		return m.trainGPU(ctx, ids, time, options)
 	}
 	if options.Resume {
 		if m.optimizer == nil {
