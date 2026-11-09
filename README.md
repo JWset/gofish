@@ -10,11 +10,10 @@ pretrained instruction models. Ollama models are inference-only in GoFish.
 
 ## Credit and license
 
-GoFish was created by **JWset**. If you share GoFish or a modified version,
-please credit it as “GoFish by JWset,” link to
-[github.com/JWset/gofish](https://github.com/JWset/gofish), keep the
-[CC BY-SA 3.0 license](LICENSE), and note any changes you made. The license
-allows commercial use; shared adaptations must use the same license.
+GoFish was created by **JWset**. It is licensed under [Apache-2.0](LICENSE).
+When redistributing GoFish or modified copies, keep its copyright and license
+notices and include the attribution in [NOTICE](NOTICE). Commercial use is
+allowed. Apps that simply import GoFish do not have to display a credit.
 
 ## Try it now
 
@@ -452,7 +451,7 @@ execute a real instruction model.
 
 The three pretraining commands regenerate all four bundled checkpoints from the
 included original corpora. There are no external training datasets. GoFish source
-code and original bundled materials are licensed under [CC BY-SA 3.0](LICENSE).
+code and original bundled materials are licensed under [Apache-2.0](LICENSE).
 
 The attention calculation follows [scaled dot-product attention](https://arxiv.org/abs/1706.03762);
 the native block uses a decoder-only pre-normalization layout. The layer-normalization
