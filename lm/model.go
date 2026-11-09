@@ -16,6 +16,7 @@ import (
 	"github.com/JWset/gofish/nn"
 	"github.com/JWset/gofish/optim"
 	"github.com/JWset/gofish/tensor"
+	"github.com/JWset/gofish/training"
 )
 
 type Config struct {
@@ -123,23 +124,9 @@ func (m *Model) forward(contexts []int, training bool) *tensor.Tensor {
 	return x.MatMul(w).Add(b).Tanh().MatMul(v).Add(c)
 }
 
-type Step struct {
-	Number int
-	Loss   float64
-}
-type TrainOptions struct {
-	Steps        int
-	BatchSize    int
-	LearningRate float64
-	ClipNorm     float64
-	Seed         int64
-	// OnStep runs synchronously with the model locked. Do not re-enter the model.
-	OnStep func(Step)
-}
-type History struct {
-	Losses []float64
-	Steps  int
-}
+type Step = training.Step
+type TrainOptions = training.Options
+type History = training.History
 
 // Train performs mini-batch Adam updates, including on previously loaded models.
 // Each call starts a fresh Adam optimizer. Steps are updates, not corpus epochs.
@@ -147,6 +134,9 @@ func (m *Model) Train(ctx context.Context, corpus string, options TrainOptions) 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	history := History{}
+	if options.Resume || options.WeightDecay != 0 {
+		return history, fmt.Errorf("gofish: Resume and WeightDecay require a transformer model")
+	}
 	if err := ctx.Err(); err != nil {
 		return history, err
 	}
@@ -199,7 +189,7 @@ func (m *Model) Train(ctx context.Context, corpus string, options TrainOptions) 
 		history.Losses = append(history.Losses, value)
 		history.Steps++
 		if options.OnStep != nil {
-			options.OnStep(Step{step + 1, value})
+			options.OnStep(Step{Number: step + 1, Loss: value})
 		}
 	}
 	return history, nil
@@ -230,27 +220,9 @@ func (m *Model) Generate(ctx context.Context, prompt string, options ...generati
 			return collector.Text(), err
 		}
 		logits := m.forward(window, false).Data()
-		selected := 1
-		for i := 2; i < len(logits); i++ {
-			if logits[i] > logits[selected] {
-				selected = i
-			}
-		}
-		if c.Temperature > 0 {
-			peak := logits[selected]
-			sum := 0.0
-			for i := 1; i < len(logits); i++ {
-				logits[i] = math.Exp((logits[i] - peak) / c.Temperature)
-				sum += logits[i]
-			}
-			draw := rng.Float64() * sum
-			for i := 1; i < len(logits); i++ {
-				draw -= logits[i]
-				if draw <= 0 {
-					selected = i
-					break
-				}
-			}
+		selected, err := generation.Sample(logits, c, rng, func(i int) bool { return i > 0 })
+		if err != nil {
+			return collector.Text(), err
 		}
 		stop, err := collector.Feed(string(m.vocabulary[selected]))
 		if err != nil {

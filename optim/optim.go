@@ -51,6 +51,7 @@ type Adam struct {
 	params       []*tensor.Tensor
 	states       []adamState
 	LearningRate float64
+	WeightDecay  float64
 }
 
 func validRate(rate float64) {
@@ -60,7 +61,7 @@ func validRate(rate float64) {
 }
 
 // NewAdam uses beta1=0.9, beta2=0.999, epsilon=1e-8 and bias correction.
-// Optimizer state is in memory; model checkpoints contain weights, not Adam moments.
+// State and LoadState support explicit optimizer checkpointing.
 func NewAdam(params []*tensor.Tensor, learningRate float64) *Adam {
 	validRate(learningRate)
 	params = parameters(params)
@@ -70,6 +71,20 @@ func NewAdam(params []*tensor.Tensor, learningRate float64) *Adam {
 	}
 	return a
 }
+
+// NewAdamW applies decoupled weight decay to each supplied parameter. Callers
+// can use separate optimizers when biases or normalization weights need no decay.
+func NewAdamW(params []*tensor.Tensor, learningRate, weightDecay float64) *Adam {
+	validDecay(weightDecay)
+	a := NewAdam(params, learningRate)
+	a.WeightDecay = weightDecay
+	return a
+}
+func validDecay(decay float64) {
+	if decay < 0 || math.IsNaN(decay) || math.IsInf(decay, 0) {
+		panic("gofish: weight decay must be finite and nonnegative")
+	}
+}
 func (a *Adam) ZeroGrad() {
 	for _, p := range a.params {
 		p.ZeroGrad()
@@ -77,6 +92,7 @@ func (a *Adam) ZeroGrad() {
 }
 func (a *Adam) Step() {
 	validRate(a.LearningRate)
+	validDecay(a.WeightDecay)
 	for j, p := range a.params {
 		if p.Grad() == nil {
 			continue
@@ -87,7 +103,7 @@ func (a *Adam) Step() {
 		p.Update(func(i int, v, g float64) float64 {
 			s.first[i] = 0.9*s.first[i] + 0.1*g
 			s.second[i] = 0.999*s.second[i] + 0.001*g*g
-			return v - a.LearningRate*(s.first[i]/c1)/(math.Sqrt(s.second[i]/c2)+1e-8)
+			return v*(1-a.LearningRate*a.WeightDecay) - a.LearningRate*(s.first[i]/c1)/(math.Sqrt(s.second[i]/c2)+1e-8)
 		})
 	}
 }

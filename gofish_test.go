@@ -86,3 +86,35 @@ func TestPublicAPI(t *testing.T) {
 		t.Fatal("root tensor API broken")
 	}
 }
+
+func TestTransformerPublicAPI(t *testing.T) {
+	m, err := gofish.NewTransformer(gofish.TransformerConfig{ContextSize: 4, Width: 4, Heads: 1, Layers: 1, FeedForward: 8, Seed: 42})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.ParameterCount() == 0 || !m.Capabilities().Train {
+		t.Fatal("missing transformer capabilities")
+	}
+	ctx := context.Background()
+	text := "hello fish 🐟"
+	if _, err = m.Train(ctx, text, gofish.TrainOptions{Steps: 2, BatchSize: 1, Seed: 42}); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "transformer.gofish")
+	if err = m.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := gofish.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = loaded.Train(ctx, text, gofish.TrainOptions{Steps: 1, BatchSize: 1, Seed: 42, Resume: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = loaded.Generate(ctx, "你好", gofish.WithMaxTokens(3), gofish.WithTopK(5), gofish.WithTopP(0.9)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = loaded.Loss(ctx, text); err != nil {
+		t.Fatal(err)
+	}
+}

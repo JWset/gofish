@@ -123,7 +123,11 @@ type Message struct {
 }
 
 func runtimeOptions(c generation.Config) map[string]any {
-	return map[string]any{"num_predict": c.MaxTokens, "temperature": c.Temperature, "seed": c.Seed, "stop": c.Stop}
+	options := map[string]any{"num_predict": c.MaxTokens, "temperature": c.Temperature, "seed": c.Seed, "stop": c.Stop, "top_p": c.TopP}
+	if c.TopK > 0 {
+		options["top_k"] = c.TopK
+	}
+	return options
 }
 func (m *Model) Generate(ctx context.Context, prompt string, options ...generation.Option) (string, error) {
 	c, err := generation.Resolve(options)

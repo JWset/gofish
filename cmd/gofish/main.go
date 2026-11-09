@@ -39,16 +39,24 @@ func run(ctx context.Context, args []string, in io.Reader, out, diagnostics io.W
 	flags := flag.NewFlagSet("gofish "+args[0], flag.ContinueOnError)
 	flags.SetOutput(diagnostics)
 	modelName := flags.String("model", "tiny-stories", "bundled name, checkpoint path, or ollama:<name>")
-	prompt := flags.String("prompt", "the sun was", "input text (native models require characters in their vocabulary)")
-	tokens := flags.Int("tokens", 128, "maximum output tokens (characters for native models)")
+	prompt := flags.String("prompt", "the sun was", "input text")
+	tokens := flags.Int("tokens", 128, "maximum output tokens (bytes for transformers, runes for character models)")
 	temperature := flags.Float64("temperature", 0.8, "sampling temperature; 0 is greedy")
 	seed := flags.Int64("seed", 42, "random seed")
+	topK := flags.Int("top-k", 0, "keep highest k logits; 0 disables native filtering or uses Ollama default")
+	topP := flags.Float64("top-p", 1, "nucleus probability threshold")
 	dataPath := flags.String("data", "", "UTF-8 training corpus")
 	outputPath := flags.String("out", "model.gofish", "native checkpoint destination")
 	steps := flags.Int("steps", 500, "number of Adam updates")
-	batch := flags.Int("batch", 32, "training batch size")
-	rate := flags.Float64("lr", 0.01, "learning rate")
-	contextSize := flags.Int("context", 12, "context characters for a new native model")
+	batch := flags.Int("batch", 0, "training batch size; 0 uses backend default")
+	rate := flags.Float64("lr", 0, "learning rate; 0 uses backend default")
+	resume := flags.Bool("resume", false, "resume transformer optimizer state from checkpoint")
+	decay := flags.Float64("decay", 0, "AdamW weight decay for transformers")
+	contextSize := flags.Int("context", 0, "new model context length; 0 uses architecture default")
+	width := flags.Int("width", 32, "new transformer embedding width")
+	heads := flags.Int("heads", 4, "new transformer attention heads")
+	layers := flags.Int("layers", 2, "new transformer decoder blocks")
+	feedForward := flags.Int("ff", 0, "new transformer feed-forward width; 0 uses 4*width")
 	embedding := flags.Int("embedding", 8, "embedding width for a new native model")
 	hidden := flags.Int("hidden", 64, "hidden width for a new native model")
 	host := flags.String("host", "http://localhost:11434", "Ollama server URL")
@@ -72,7 +80,9 @@ func run(ctx context.Context, args []string, in io.Reader, out, diagnostics io.W
 	defer cancel()
 	var model *gofish.Model
 	var err error
-	if args[0] == "train" && *modelName == "new" {
+	if args[0] == "train" && *modelName == "new-transformer" {
+		model, err = gofish.NewTransformer(gofish.TransformerConfig{ContextSize: *contextSize, Width: *width, Heads: *heads, Layers: *layers, FeedForward: *feedForward, Seed: *seed})
+	} else if args[0] == "train" && *modelName == "new" {
 		if *dataPath == "" {
 			return fmt.Errorf("gofish: train requires -data <file>")
 		}
@@ -89,7 +99,7 @@ func run(ctx context.Context, args []string, in io.Reader, out, diagnostics io.W
 	if err != nil {
 		return err
 	}
-	options := []gofish.GenerateOption{gofish.WithMaxTokens(*tokens), gofish.WithTemperature(*temperature), gofish.WithSeed(*seed)}
+	options := []gofish.GenerateOption{gofish.WithMaxTokens(*tokens), gofish.WithTemperature(*temperature), gofish.WithSeed(*seed), gofish.WithTopK(*topK), gofish.WithTopP(*topP)}
 	switch args[0] {
 	case "generate":
 		options = append(options, gofish.WithStream(func(s string) error { _, err := io.WriteString(out, s); return err }))
@@ -113,7 +123,7 @@ func run(ctx context.Context, args []string, in io.Reader, out, diagnostics io.W
 		if err != nil {
 			return err
 		}
-		_, err = model.Train(ctx, string(data), gofish.TrainOptions{Steps: *steps, BatchSize: *batch, LearningRate: *rate, Seed: *seed, OnStep: func(s gofish.Step) {
+		_, err = model.Train(ctx, string(data), gofish.TrainOptions{Steps: *steps, BatchSize: *batch, LearningRate: *rate, Seed: *seed, Resume: *resume, WeightDecay: *decay, OnStep: func(s gofish.Step) {
 			if s.Number == 1 || s.Number%100 == 0 || s.Number == *steps {
 				fmt.Fprintf(diagnostics, "step=%d loss=%.4f\n", s.Number, s.Loss)
 			}

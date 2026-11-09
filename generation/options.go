@@ -11,6 +11,8 @@ import (
 type Config struct {
 	MaxTokens   int
 	Temperature float64
+	TopK        int
+	TopP        float64
 	Seed        int64
 	Stop        []string
 	OnToken     func(string) error
@@ -22,6 +24,11 @@ func WithMaxTokens(n int) Option { return func(c *Config) { c.MaxTokens = n } }
 // WithTemperature(0) selects greedy decoding for native models.
 func WithTemperature(t float64) Option { return func(c *Config) { c.Temperature = t } }
 func WithSeed(seed int64) Option       { return func(c *Config) { c.Seed = seed } }
+
+// WithTopK restricts native sampling to k candidates; zero disables that filter.
+// Ollama receives positive values, while zero leaves its server default intact.
+func WithTopK(k int) Option     { return func(c *Config) { c.TopK = k } }
+func WithTopP(p float64) Option { return func(c *Config) { c.TopP = p } }
 func WithStop(stop ...string) Option {
 	stop = append([]string(nil), stop...)
 	return func(c *Config) { c.Stop = append([]string(nil), stop...) }
@@ -31,7 +38,7 @@ func WithStop(stop ...string) Option {
 // generation. Callbacks must not re-enter a native model that is generating.
 func WithStream(f func(string) error) Option { return func(c *Config) { c.OnToken = f } }
 func Resolve(options []Option) (Config, error) {
-	c := Config{MaxTokens: 128, Temperature: 0.8, Seed: 1}
+	c := Config{MaxTokens: 128, Temperature: 0.8, TopP: 1, Seed: 1}
 	for _, option := range options {
 		if option == nil {
 			return c, fmt.Errorf("gofish: nil generation option")
@@ -44,9 +51,12 @@ func Resolve(options []Option) (Config, error) {
 	if c.Temperature < 0 || math.IsNaN(c.Temperature) || math.IsInf(c.Temperature, 0) {
 		return c, fmt.Errorf("gofish: temperature must be finite and nonnegative")
 	}
+	if c.TopK < 0 || c.TopP <= 0 || c.TopP > 1 || math.IsNaN(c.TopP) {
+		return c, fmt.Errorf("gofish: top-k must be nonnegative and top-p must be in (0,1]")
+	}
 	for _, s := range c.Stop {
-		if s == "" {
-			return c, fmt.Errorf("gofish: stop sequences must be nonempty")
+		if s == "" || !utf8.ValidString(s) {
+			return c, fmt.Errorf("gofish: stop sequences must be nonempty valid UTF-8")
 		}
 	}
 	return c, nil

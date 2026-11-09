@@ -208,8 +208,12 @@ func (a *Tensor) Transpose() *Tensor {
 	return out
 }
 
-// MatMul multiplies [rows, inner] by [inner, columns]. Batched MatMul is not yet supported.
+// MatMul multiplies the last two dimensions, broadcasting any leading batch
+// dimensions. Both operands must have at least two dimensions.
 func (a *Tensor) MatMul(b *Tensor) *Tensor {
+	if len(a.shape) > 2 || len(b.shape) > 2 {
+		return batchMatMul(a, b)
+	}
 	if len(a.shape) != 2 || len(b.shape) != 2 || a.shape[1] != b.shape[0] {
 		panic("gofish: MatMul requires compatible matrices")
 	}

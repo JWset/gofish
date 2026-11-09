@@ -10,9 +10,11 @@ import (
 	"strings"
 
 	"github.com/JWset/gofish/generation"
+	"github.com/JWset/gofish/internal/checkpoint"
 	"github.com/JWset/gofish/lm"
 	"github.com/JWset/gofish/ollama"
 	"github.com/JWset/gofish/tensor"
+	"github.com/JWset/gofish/transformer"
 )
 
 type Tensor = tensor.Tensor
@@ -24,6 +26,7 @@ var Ones = tensor.Ones
 var Randn = tensor.Randn
 
 type Config = lm.Config
+type TransformerConfig = transformer.Config
 type TrainOptions = lm.TrainOptions
 type History = lm.History
 type Step = lm.Step
@@ -33,15 +36,24 @@ type Message = ollama.Message
 var WithMaxTokens = generation.WithMaxTokens
 var WithTemperature = generation.WithTemperature
 var WithSeed = generation.WithSeed
+var WithTopK = generation.WithTopK
+var WithTopP = generation.WithTopP
 var WithStop = generation.WithStop
 var WithStream = generation.WithStream
 
 var ErrUnsupported = errors.New("gofish: operation is unsupported by this model backend")
 
-// Model wraps either a native trainable character model or an Ollama client.
+// Model wraps a native character model, native byte transformer, or Ollama client.
 // Native premade models can be fine-tuned; Ollama models support inference only.
+type nativeModel interface {
+	Generate(context.Context, string, ...generation.Option) (string, error)
+	Train(context.Context, string, TrainOptions) (History, error)
+	Loss(context.Context, string) (float64, error)
+	Save(string) error
+	Parameters() []*tensor.Tensor
+}
 type Model struct {
-	native *lm.Model
+	native nativeModel
 	remote *ollama.Model
 }
 type Capabilities struct {
@@ -55,7 +67,7 @@ func (m *Model) Capabilities() Capabilities {
 	return Capabilities{Train: m.native != nil, Save: m.native != nil, Pull: m.remote != nil, Chat: m.remote != nil}
 }
 
-// Load accepts "tiny-stories", "tiny-dialogue", a native checkpoint path, or
+// Load accepts "tiny-stories", "tiny-dialogue", "tiny-transformer", a native checkpoint path, or
 // "ollama:<model-name>". Ollama weights must be downloaded separately with Pull.
 func Load(nameOrPath string) (*Model, error) {
 	if strings.HasPrefix(nameOrPath, "ollama:") {
@@ -64,6 +76,13 @@ func Load(nameOrPath string) (*Model, error) {
 	if nameOrPath == "tiny" {
 		nameOrPath = "tiny-stories"
 	}
+	if nameOrPath == "tiny-transformer" {
+		m, err := transformer.Pretrained()
+		if err != nil {
+			return nil, err
+		}
+		return &Model{native: m}, nil
+	}
 	if nameOrPath == "tiny-stories" || nameOrPath == "tiny-dialogue" {
 		m, err := lm.Pretrained(nameOrPath)
 		if err != nil {
@@ -71,11 +90,44 @@ func Load(nameOrPath string) (*Model, error) {
 		}
 		return &Model{native: m}, nil
 	}
-	m, err := lm.Load(nameOrPath)
+	format, err := checkpoint.Format(nameOrPath)
+	if err != nil {
+		return nil, err
+	}
+	var model nativeModel
+	switch format {
+	case "gofish-char-mlp":
+		model, err = lm.Load(nameOrPath)
+	case "gofish-byte-transformer":
+		model, err = transformer.Load(nameOrPath)
+	default:
+		return nil, fmt.Errorf("gofish: unsupported checkpoint format %q", format)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &Model{native: model}, nil
+}
+
+// NewTransformer initializes a byte-tokenized decoder for native CPU training.
+func NewTransformer(config TransformerConfig) (*Model, error) {
+	m, err := transformer.New(config)
 	if err != nil {
 		return nil, err
 	}
 	return &Model{native: m}, nil
+}
+
+// ParameterCount reports native parameter count; Ollama models are external and return zero.
+func (m *Model) ParameterCount() int {
+	if m.native == nil {
+		return 0
+	}
+	n := 0
+	for _, p := range m.native.Parameters() {
+		n += p.Numel()
+	}
+	return n
 }
 func NewLanguageModel(corpus string, config Config) (*Model, error) {
 	m, err := lm.New(corpus, config)

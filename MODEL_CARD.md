@@ -1,12 +1,13 @@
 # Bundled native models
 
-GoFish includes two trained checkpoints, not randomly initialized placeholders.
-They ship as embedded gzip-compressed JSON under `lm/assets` and run offline.
+GoFish includes three trained checkpoints. They ship as embedded gzip-compressed
+JSON under `lm/assets` and `transformer/assets` and run offline.
 
 | Model | Corpus | Intended use |
 | --- | --- | --- |
 | `tiny-stories` (alias `tiny`) | `lm/corpora/tiny-stories.txt` | Continue a short story about a fish and a bird |
 | `tiny-dialogue` | `lm/corpora/tiny-dialogue.txt` | Reproduce patterns from a small set of dialogue examples |
+| `tiny-transformer` | `transformer/corpora/tiny-transformer.txt` | Demonstrate a trainable byte-level causal decoder |
 
 These are demonstrations of loading, differentiable training, text sampling,
 and fine-tuning. **They do not understand general questions or provide reliable
@@ -14,7 +15,7 @@ answers.** The dialogue model is not a general assistant. For general-purpose
 text generation, use a separately downloaded pretrained instruction model
 through the Ollama backend.
 
-## Architecture and training
+## Character model architecture and training
 
 - Rune-level vocabulary derived from each corpus; NUL is reserved for padding.
 - 12-character context window, 8-dimensional learned embeddings.
@@ -50,5 +51,49 @@ go test ./lm
 ```
 
 The checkpoint includes its configuration, vocabulary and trained weights.
-Optimizer state is not saved. Reloading and calling `Train` fine-tunes the
-weights with a fresh Adam optimizer.
+For the character models, optimizer state is not saved. Reloading and calling
+`Train` fine-tunes the weights with a fresh Adam optimizer.
+
+## Transformer architecture and training
+
+`tiny-transformer` has 34,881 trainable parameters:
+
+- Byte tokenizer: 256 byte values and a separate BOS token; any valid UTF-8 input.
+- A 32-byte context window and learned token and position embeddings of width 32.
+- Two pre-normalized decoder blocks, each with four causal attention heads.
+- Head dimension 8; feed-forward width 64 with exact GELU activation.
+- Learned affine layer normalization, residual paths, an untied vocabulary head.
+- No dropout, weight tying, KV cache, GPU kernels or external tokenizer files.
+- Next-byte cross entropy at every position in windows, with full backpropagation.
+- 6,000 AdamW updates; learning rate 0.003, weight decay 0.01, batch 4, clip norm 1.
+- Initialization and training seed 42; all operations use CPU float64.
+
+Mean next-byte cross entropy on the included **training corpus** fell from 5.5558
+to 0.4058. Evaluation uses non-overlapping windows and resets positions for each
+window. There is no held-out benchmark or claim of general language competence.
+Generated text contains recognizable corpus fragments but can mix words, repeat
+itself, and produce broken sentences. More parameters, data and training would
+be needed for a useful language model. This checkpoint demonstrates the complete
+training and inference path.
+
+The byte tokenizer removes the character models' unknown-character errors, but
+does not teach the model languages or symbols absent from its training data.
+Generation applies UTF-8 prefix constraints and respects the byte-token budget,
+so unfamiliar prompts still produce valid output strings.
+
+Transformer checkpoints include AdamW moments and absolute update numbering.
+Call `Train` with `Resume: true` to continue from those moments. With the same
+corpus, seed, batch size and settings, checkpoint resume matches uninterrupted
+training exactly; tests compare every parameter. Ordinary `Train` starts a fresh
+optimizer while retaining the weights.
+
+Reproduce the transformer from scratch:
+
+```sh
+go run ./internal/pretrain-transformer
+go run ./examples/transformer
+go test ./transformer
+```
+
+The original transformer corpus is MIT licensed with the project. No external
+model weights or datasets are included in this checkpoint.

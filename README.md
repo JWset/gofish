@@ -4,8 +4,8 @@ Tensors, autograd, neural networks, and text generation in Go. No Python, CGO,
 API key, or third-party Go dependencies are needed for the native backend.
 
 **This is a small, working first version inspired by PyTorch, not a complete
-PyTorch replacement.** Native training uses CPU float64 tensors. It includes two
-small pretrained character models and an Ollama adapter for running larger
+PyTorch replacement.** Native training uses CPU float64 tensors. It includes a
+byte-level decoder transformer, two small character models, and an Ollama adapter for running larger
 pretrained instruction models. Ollama models are inference-only in GoFish.
 
 ## Try it now
@@ -14,14 +14,15 @@ From this repository, with Go 1.22 or later:
 
 ```sh
 go run ./examples/tiny
+go run ./examples/transformer
 go run ./examples/xor
 go run ./cmd/gofish models
 go run ./cmd/gofish generate -prompt "the sun was" -temperature 0
 ```
 
-The tiny model runs immediately, with no downloads. Its weights are embedded in
-the module. It generates continuations of its small training corpus; it is not
-a general-purpose chatbot. See [MODEL_CARD.md](MODEL_CARD.md).
+All three tiny models run immediately, with no downloads. Their trained weights
+are embedded in the module. They generate patterns from small training corpora;
+they are not general-purpose chatbots. See [MODEL_CARD.md](MODEL_CARD.md).
 
 ## Import it
 
@@ -75,16 +76,110 @@ func main() {
 }
 ```
 
-`Generate` returns the continuation, excluding the prompt. For native models,
-tokens are Unicode characters; prompts and training text must use the model's
-existing vocabulary. Errors report unfamiliar characters. Create a new model
-from your corpus when you need a different vocabulary.
+`Generate` returns the continuation, excluding the prompt. `tiny-stories` and
+`tiny-dialogue` use Unicode character tokens and a fixed vocabulary. Their errors
+report unfamiliar characters. `tiny-transformer` uses byte tokens and can accept
+any valid UTF-8 prompt or training text, including characters absent from training.
 
 `WithTemperature(0)` enables greedy decoding. `WithSeed` makes sampling
-reproducible. `WithStop` removes matching stop sequences, including across
+reproducible. `WithTopK(k)` and `WithTopP(p)` control top-k and nucleus sampling.
+Top-k zero disables the native filter; on Ollama it leaves the server default.
+`WithStop` removes matching stop sequences, including across
 streamed chunks. `WithStream(func(string) error)` receives generated chunks;
 return an error to stop. Callbacks run synchronously and must not re-enter the
 same native model.
+
+## A native transformer
+
+Load a trained transformer using the same API:
+
+```go
+model, err := gofish.Load("tiny-transformer")
+if err != nil {
+    return err
+}
+text, err := model.Generate(ctx, "the little fish",
+    gofish.WithMaxTokens(160),
+    gofish.WithTemperature(0.5),
+    gofish.WithTopK(20),
+    gofish.WithTopP(0.9),
+)
+```
+
+This checkpoint has 34,881 parameters, two decoder blocks, four attention heads,
+32-wide embeddings, and a 32-byte context window. It implements causal attention,
+learned positions, pre-layer normalization, residual connections, and GELU feed-forward
+layers. It was trained on the included original corpus. It is still a tiny text
+generation demonstration, not a general assistant.
+
+Or create your own transformer, train it, and save a resumable checkpoint:
+
+```go
+model, err := gofish.NewTransformer(gofish.TransformerConfig{
+    ContextSize: 32,
+    Width:       32,
+    Heads:       4,
+    Layers:      2,
+    FeedForward: 64,
+    Seed:        42,
+})
+if err != nil {
+    return err
+}
+_, err = model.Train(ctx, corpus, gofish.TrainOptions{
+    Steps:        1000,
+    BatchSize:    4,
+    LearningRate: 0.003,
+    WeightDecay:  0.01,
+    Seed:         42,
+})
+if err != nil {
+    return err
+}
+if err := model.Save("transformer.gofish"); err != nil {
+    return err
+}
+```
+
+Continue training with optimizer moments restored:
+
+```go
+model, err := gofish.Load("transformer.gofish")
+if err != nil {
+    return err
+}
+_, err = model.Train(ctx, corpus, gofish.TrainOptions{
+    Steps:     500,
+    BatchSize: 4,
+    Seed:      42,
+    Resume:    true,
+})
+```
+
+Transformer checkpoints include weights, architecture, AdamW moments and absolute
+update numbering. `Resume: true` preserves that state; an ordinary `Train` call
+starts fresh optimizer state while retaining the model's weights. To reproduce an
+uninterrupted run exactly, keep the corpus, seed, batch size and other training
+settings the same. A zero learning rate or weight decay on resume retains the
+saved optimizer value; start a fresh optimizer to reset decay to zero.
+
+CLI equivalents:
+
+```sh
+go run ./cmd/gofish generate -model tiny-transformer -prompt "the little fish" -tokens 160 -top-k 20 -top-p 0.9
+go run ./cmd/gofish train -model new-transformer -data my-text.txt -steps 1000 -out transformer.gofish
+go run ./cmd/gofish train -model transformer.gofish -data my-text.txt -steps 500 -resume -out transformer.gofish
+```
+
+Use `-context`, `-width`, `-heads`, `-layers`, and `-ff` to configure a new
+transformer. Width must be divisible by heads. Defaults are context 32, width 32,
+heads 4, layers 2, and feed-forward width 128. Training defaults are batch 4 and
+learning rate 0.003. `-decay` enables AdamW weight decay. Native transformer
+generation counts bytes toward the token budget and constrains decoding to valid
+UTF-8, so both the returned text and streamed chunks contain complete characters.
+
+The lower-level `transformer.Model` also exposes differentiable `Forward` and
+`Parameters` methods for custom training loops. See [examples/transformer](examples/transformer/main.go).
 
 ## Run a larger pretrained model
 
@@ -166,9 +261,10 @@ if err := model.Save("my-model.gofish"); err != nil {
 ```
 
 Reload with `gofish.Load("my-model.gofish")`, then call `Generate` or `Train`.
-Both bundled native pretrained models can also be trained further this way.
-Each `Train` call starts fresh Adam moments; checkpoints save the architecture,
-vocabulary, and weights, not optimizer state. Steps count updates, not epochs.
+Both bundled character models can also be trained further this way. Character
+model checkpoints save architecture, vocabulary, and weights; their `Train` calls
+always start fresh Adam moments and do not support `Resume` or `WeightDecay`.
+All native training steps count updates, not epochs.
 
 CLI equivalents:
 
@@ -181,11 +277,13 @@ go run ./cmd/gofish generate -model my-model.gofish -prompt "hello"
 go run ./cmd/gofish train -model tiny-stories -data lm/corpora/tiny-stories.txt -steps 100 -out tuned.gofish
 ```
 
-Native models use a fixed-context embedding/MLP architecture, not a transformer.
-They are suitable for small experiments. GoFish cannot load Hugging Face,
-PyTorch, GGUF, or ONNX weights into its native training backend. Native model
-dimensions are bounded to keep these experiments small (at most 5 million
-parameters). Fine-tuning Qwen/Llama and GPU training are not implemented.
+The character models use a fixed-context embedding/MLP architecture; the byte
+model is a decoder transformer. Both are suitable for small CPU experiments.
+GoFish cannot load Hugging Face, PyTorch, GGUF, or ONNX weights into its native
+training backend. Limits are 5 million parameters for character models and 2
+million for transformers, with an additional training activation budget. The
+transformer uses full attention and recomputes its context during generation;
+KV caching, GPU training, and fine-tuning Qwen/Llama are not implemented.
 Check `model.Capabilities()` before backend-specific operations; unsupported
 operations return errors wrapping `gofish.ErrUnsupported`.
 
@@ -218,12 +316,15 @@ Available packages:
 | Package | Provides |
 | --- | --- |
 | `gofish` | Model loading, training, generation, starter catalog, tensor constructors |
-| `tensor` | Dense float64 tensors, broadcasting, matrix multiply, reshape, transpose, row gather, reductions, activations, softmax, losses, autograd |
-| `nn` | Linear, Embedding, Sequential, ReLU, Tanh, Sigmoid, network weight checkpoints |
-| `optim` | SGD, bias-corrected Adam, global gradient norm clipping |
+| `tensor` | Dense float64 tensors, broadcasting, batched matrix multiply, reshape, permute, slice, gather, activations, layer normalization, causal attention, losses, autograd |
+| `nn` | Linear, Embedding, Sequential, ReLU, Tanh, Sigmoid, GELU, LayerNorm, MultiHeadAttention, TransformerBlock, weight checkpoints |
+| `optim` | SGD, Adam, AdamW, serializable optimizer state, global gradient norm clipping |
 | `lm` | Native character-model architecture, vocabulary, training and compressed checkpoints |
+| `transformer` | Native byte decoder, pretrained weights, training, resumable checkpoints and UTF-8 generation |
+| `tokenizer` | Lossless byte tokenization, BOS token and UTF-8 prefix validation |
+| `training` | Shared native training options, progress and history |
 | `ollama` | Pretrained generation, explicit chat history, streaming and model downloads |
-| `generation` | Shared sampling options and stop-aware stream collection |
+| `generation` | Temperature, top-k, top-p, token filtering and stop-aware streaming |
 
 ## Tensor behavior
 
@@ -235,8 +336,11 @@ fmt.Println(x.Grad()) // [4 6]
 ```
 
 Tensors own their storage; `Data`, `Shape`, and `Grad` return copies. Arithmetic
-supports NumPy-style broadcasting. `MatMul` and `Transpose` currently require
-2D matrices. `Softmax` normalizes the last dimension. `CrossEntropy` takes
+supports NumPy-style broadcasting. `MatMul` broadcasts leading batch dimensions;
+`Transpose` swaps 2D matrix axes and `Permute` reorders arbitrary dimensions.
+`Slice` selects an interval along an axis. `Softmax` and `LayerNorm` operate on
+the last dimension. `Attention` accepts `[batch,time,width]` tensors, splits heads,
+and optionally masks future positions before softmax. `CrossEntropy` takes
 `[batch, classes]` logits and one integer target per row.
 
 `Backward` accumulates leaf gradients, so call `ZeroGrad` before the next update.
@@ -244,8 +348,8 @@ Non-scalar outputs need a same-shaped upstream gradient passed to `Backward`.
 Graphs can be reused before parameters change; modifying a value needed by a
 pending backward pass produces a panic. `Detach` copies values without their
 graph. Shape/index errors panic, while model loading, generation and training
-return errors. Higher-order derivatives, sparse tensors, GPU tensors, batched
-matrix multiplication, convolution, and distributed training are not included.
+return errors. Higher-order derivatives, sparse tensors, GPU tensors,
+convolution, and distributed training are not included.
 
 Individual tensors are not safe for concurrent mutation. High-level native
 `Train`, `Generate`, `Loss`, and `Save` calls serialize access to a model; direct
@@ -257,14 +361,21 @@ parameter mutation requires your own synchronization.
 go test -race -cover ./...
 go vet ./...
 go run ./internal/pretrain
+go run ./internal/pretrain-transformer
 ```
 
 Tests check derivatives with finite differences, shared computation graphs,
 broadcasting, embedding gradients, numerical stability, XOR convergence,
 language-model convergence, actual bundled checkpoints, save/load parity,
-Unicode, cancellation, streaming stops, CLI training, and Ollama request/response
+Unicode, cancellation, streaming stops, CLI training, causal masking, transformer
+convergence, exact optimizer resume, checkpoint corruption, and Ollama request/response
 contracts. Adapter tests use in-process HTTP transports and do not download or
 execute a real instruction model.
 
-The pretraining command regenerates both bundled checkpoints from the included
-original corpora. There are no external training datasets. MIT licensed.
+The two pretraining commands regenerate all three bundled checkpoints from the
+included original corpora. There are no external training datasets. MIT licensed.
+
+The attention calculation follows [scaled dot-product attention](https://arxiv.org/abs/1706.03762);
+the native block uses a decoder-only pre-normalization layout. The layer-normalization
+implementation uses population variance and learned affine parameters, matching
+the [documented LayerNorm definition](https://docs.pytorch.org/docs/stable/generated/torch.nn.LayerNorm.html).

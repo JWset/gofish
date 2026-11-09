@@ -42,3 +42,22 @@ func TestCLIUsageAndErrors(t *testing.T) {
 		}
 	}
 }
+
+func TestCLITransformerTrainResumeAndGenerate(t *testing.T) {
+	dir := t.TempDir()
+	corpus := filepath.Join(dir, "text.txt")
+	checkpoint := filepath.Join(dir, "transformer.gofish")
+	if err := os.WriteFile(corpus, []byte("hello fish 🐟 hello bird\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	var output, diagnostics bytes.Buffer
+	for _, args := range [][]string{
+		{"train", "-model", "new-transformer", "-data", corpus, "-out", checkpoint, "-width", "4", "-heads", "1", "-layers", "1", "-context", "4", "-steps", "2", "-batch", "1"},
+		{"train", "-model", checkpoint, "-data", corpus, "-out", checkpoint, "-steps", "1", "-batch", "1", "-resume"},
+		{"generate", "-model", checkpoint, "-prompt", "你好", "-tokens", "5", "-top-k", "5", "-top-p", "0.9"},
+	} {
+		if err := run(context.Background(), args, strings.NewReader(""), &output, &diagnostics); err != nil {
+			t.Fatal(args, err)
+		}
+	}
+}

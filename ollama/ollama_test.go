@@ -67,6 +67,9 @@ func TestGenerateChatPullAndStreaming(t *testing.T) {
 			if options["num_predict"] != float64(12) {
 				t.Error("generation options missing")
 			}
+			if options["top_k"] != float64(7) || options["top_p"] != 0.9 {
+				t.Error("sampling filters missing")
+			}
 			if body["stream"] == true {
 				fmt.Fprintln(w, `{"response":"hello ","done":false}`)
 				fmt.Fprintln(w, `{"response":"fish","done":true}`)
@@ -86,7 +89,7 @@ func TestGenerateChatPullAndStreaming(t *testing.T) {
 	if err = m.Pull(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	options := []generation.Option{generation.WithMaxTokens(12)}
+	options := []generation.Option{generation.WithMaxTokens(12), generation.WithTopK(7), generation.WithTopP(0.9)}
 	text, err := m.Generate(context.Background(), "hello", options...)
 	if err != nil || text != "hello fish" {
 		t.Fatalf("%q, %v", text, err)
