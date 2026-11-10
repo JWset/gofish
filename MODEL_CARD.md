@@ -115,5 +115,15 @@ These are memorization results, not held-out language benchmarks.
 Rebuild with `go run ./internal/pretrain-llama`; run with `go run ./examples/gguf`.
 The corpus, code and bundled original weights use the project's Apache-2.0 license.
 Native cache logits are tested against full-sequence autograd logits, including
-GQA and rotary embeddings. Export/reload and fine-tuning are tested. External
-third-party pretrained Llama checkpoints have not been executed here.
+GQA and rotary embeddings. Export/reload and fine-tuning are tested. Native
+engine compatibility uses generated fixtures; managed pretrained inference has
+separate real-checkpoint tests, described below.
+
+## External pretrained GGUF compatibility
+
+GoFish can manage a local llama.cpp runtime for Qwen3, Gemma and SmolLM
+checkpoints. These weights are downloaded separately and retain their own
+upstream licenses. They are not bundled original GoFish weights.
+See [pretrained setup and limitations](PRETRAINED.md) and the
+[pinned compatibility run](pretrained/testdata/COMPATIBILITY.md).
+Compatibility tests are not knowledge, factuality or quality benchmarks.

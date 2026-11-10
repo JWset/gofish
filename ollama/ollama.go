@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/JWset/gofish/chat"
 	"io"
 	"net/http"
 	"net/url"
@@ -117,10 +118,7 @@ func (m *Model) Pull(ctx context.Context) error {
 	return nil
 }
 
-type Message struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
-}
+type Message = chat.Message
 
 func runtimeOptions(c generation.Config) map[string]any {
 	options := map[string]any{"num_predict": c.MaxTokens, "temperature": c.Temperature, "seed": c.Seed, "stop": c.Stop, "top_p": c.TopP}

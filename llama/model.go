@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math"
 	"sync"
+	"time"
 
 	"github.com/JWset/gofish/gguf"
 )
@@ -26,9 +27,16 @@ type Config struct {
 	Seed             int64
 }
 type LoadOptions struct {
-	ContextSize   int    // Zero uses min(declared context, 2048).
-	MaxModelBytes uint64 // Zero permits at most 2 GiB of encoded weights.
-	MaxCacheBytes uint64 // Zero permits at most 256 MiB per session's KV cache.
+	// Runtime selects auto (default), native, or llama.cpp at the root GoFish API.
+	Runtime        string
+	ServerPath     string
+	GPULayers      int
+	Threads        int
+	ChatTemplate   string
+	StartupTimeout time.Duration
+	ContextSize    int    // Zero uses min(declared context, 2048).
+	MaxModelBytes  uint64 // Zero: native 2 GiB tensor budget; managed runtime 16 GiB file budget.
+	MaxCacheBytes  uint64 // Zero: native 256 MiB/session; managed runtime 1 GiB estimated KV budget.
 }
 type layer struct {
 	norm, ffnNorm                   []float32

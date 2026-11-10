@@ -1,0 +1,92 @@
+[
+  {
+    "name": "qwen3-0.6b",
+    "architecture": "qwen3",
+    "family": "qwen3",
+    "repository": "Qwen/Qwen3-0.6B-GGUF",
+    "filename": "Qwen3-0.6B-Q8_0.gguf",
+    "revision": "23749fefcc72300e3a2ad315e1317431b06b590a",
+    "sha256": "9465e63a22add5354d9bb4b99e90117043c7124007664907259bd16d043bb031",
+    "tool_mode": "native"
+  },
+  {
+    "name": "qwen3-1.7b",
+    "architecture": "qwen3",
+    "family": "qwen3",
+    "repository": "Qwen/Qwen3-1.7B-GGUF",
+    "filename": "Qwen3-1.7B-Q8_0.gguf",
+    "revision": "90862c4b9d2787eaed51d12237eafdfe7c5f6077",
+    "sha256": "061b54daade076b5d3362dac252678d17da8c68f07560be70818cace6590cb1a",
+    "tool_mode": "native"
+  },
+  {
+    "name": "qwen3-4b",
+    "architecture": "qwen3",
+    "family": "qwen3",
+    "repository": "Qwen/Qwen3-4B-GGUF",
+    "filename": "Qwen3-4B-Q4_K_M.gguf",
+    "revision": "bc640142c66e1fdd12af0bd68f40445458f3869b",
+    "sha256": "7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5",
+    "tool_mode": "native"
+  },
+  {
+    "name": "gemma",
+    "architecture": "gemma",
+    "family": "gemma",
+    "repository": "bartowski/gemma-1.1-2b-it-GGUF",
+    "filename": "gemma-1.1-2b-it-Q4_K_M.gguf",
+    "revision": "162c31b2e5af7de4410e96df26ce062dc512e670",
+    "sha256": "cc2118e1d780fa33582738d8c99223d62c8734b06ef65076c01618d484d081d4",
+    "tool_mode": "json"
+  },
+  {
+    "name": "gemma2",
+    "architecture": "gemma2",
+    "family": "gemma2",
+    "repository": "bartowski/gemma-2-2b-it-GGUF",
+    "filename": "gemma-2-2b-it-Q4_K_M.gguf",
+    "revision": "855f67caed130e1befc571b52bd181be2e858883",
+    "sha256": "e0aee85060f168f0f2d8473d7ea41ce2f3230c1bc1374847505ea599288a7787",
+    "tool_mode": "json"
+  },
+  {
+    "name": "gemma3",
+    "architecture": "gemma3",
+    "family": "gemma3",
+    "repository": "unsloth/gemma-3-270m-it-GGUF",
+    "filename": "gemma-3-270m-it-Q8_0.gguf",
+    "revision": "c90975dbd40c0c7b275fefaae758c3415c906238",
+    "sha256": "d156a5159f2f79c1b1d53c7c1cc20f1ff28ab8d00f17a292620aad13399b9698",
+    "tool_mode": "json"
+  },
+  {
+    "name": "smollm1",
+    "architecture": "llama",
+    "family": "smollm",
+    "repository": "HuggingFaceTB/smollm-135M-instruct-v0.2-Q8_0-GGUF",
+    "filename": "smollm-135m-instruct-add-basics-q8_0.gguf",
+    "revision": "53066c72a815622e28d006aefbe32df6dd4b1835",
+    "sha256": "a98d3857b95b96c156d954780d28f39dcb35b642e72892ee08ddff70719e6220",
+    "tool_mode": "json"
+  },
+  {
+    "name": "smollm2",
+    "architecture": "llama",
+    "family": "smollm",
+    "repository": "bartowski/SmolLM2-135M-Instruct-GGUF",
+    "filename": "SmolLM2-135M-Instruct-Q8_0.gguf",
+    "revision": "09816acd5d99df7be770d85ea30822623dab342c",
+    "sha256": "5a1395716f7913741cc51d98581b9b1228d80987a9f7d3664106742eb06bba83",
+    "tool_mode": "json"
+  },
+  {
+    "name": "smollm3",
+    "architecture": "smollm3",
+    "family": "smollm3",
+    "repository": "unsloth/SmolLM3-3B-GGUF",
+    "filename": "SmolLM3-3B-Q4_K_M.gguf",
+    "revision": "a7bc17204c8a326d6bd6e466e076959eddae2025",
+    "sha256": "4de907d2d388a5508fb7cb443a06effe14cce3518b0a78d3bdd9e74d9edce989",
+    "tool_mode": "json"
+  }
+]

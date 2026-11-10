@@ -16,6 +16,28 @@ When redistributing GoFish or modified copies, keep its copyright and license
 notices and include the attribution in [NOTICE](NOTICE). Commercial use is
 allowed. Apps that simply import GoFish do not have to display a credit.
 
+## Local pretrained models
+
+Load Qwen3 0.6B, 1.7B or 4B, Gemma 1/2/3 (text), and SmolLM 1/2/3 from GGUF.
+GoFish manages a local `llama-server` process for pretrained inference; the native
+GoFish transformer and its CPU/CUDA training API remain available.
+
+```go
+model, err := gofish.LoadGGUF("Qwen3-0.6B-Q8_0.gguf", gofish.GGUFOptions{
+    ContextSize: 2048,
+})
+if err != nil { panic(err) }
+defer model.Close()
+text, err := model.Chat(context.Background(), []gofish.Message{
+    {Role: "user", Content: "Explain the difference between training and inference."},
+}, gofish.WithMaxTokens(200))
+```
+
+Model-specific tokenizers, embedded conversation templates, quantized weights,
+streaming and structured function calls run locally. Requires a separately
+installed `llama-server`; model files are not downloaded automatically.
+[Setup, function calls, limits and compatibility results](PRETRAINED.md).
+
 ## Try it now
 
 From this repository, with Go 1.27 or later:
@@ -202,16 +224,16 @@ go run ./cmd/gofish generate -model tiny-llama -prompt "the little fish" -temper
 Or load a supported local file:
 
 ```go
-model, err := gofish.Load("my-model.gguf")
-// Optional explicit limits:
-model, err = gofish.LoadGGUF("my-model.gguf", gofish.GGUFOptions{
+// Explicitly select the native Llama subset and its limits:
+model, err := gofish.LoadGGUF("my-model.gguf", gofish.GGUFOptions{
+    Runtime:       "native",
     ContextSize:   512,
     MaxModelBytes: 2 << 30,
     MaxCacheBytes: 256 << 20,
 })
 ```
 
-The loader supports little-endian GGUF v2/v3, architecture `llama`, Llama-style
+This native loader supports little-endian GGUF v2/v3, architecture `llama`, Llama-style
 SentencePiece BPE with byte fallback, RMSNorm, SwiGLU, interleaved RoPE and
 grouped-query attention. Encodings are F32, F16, BF16, Q4_0, Q4_1, Q5_0, Q5_1,
 Q8_0, Q4_K and Q6_K. Quantized matrices stay packed; CPU matrix-vector operations
@@ -227,8 +249,9 @@ Llama 3), Qwen/Gemma architectures, MoE, bias tensors, custom rotary-frequency
 tensors, noncausal attention, sharded files and RoPE scaling other than none or
 linear are rejected. Compatibility is validated with generated GGUF fixtures,
 quantization bit-pattern tests, SentencePiece merge tests, and cached logits
-compared with a separate full-sequence autograd path. **A downloaded third-party
-Llama/TinyLlama checkpoint has not been executed in this environment.**
+compared with a separate full-sequence autograd path. These are native-engine
+fixture checks. The [managed pretrained backend](PRETRAINED.md) separately passes
+real-checkpoint compatibility tests for Qwen3, Gemma and SmolLM.
 
 Inspect a file without loading its weight payloads:
 
@@ -397,6 +420,8 @@ Available packages:
 | `optim` | SGD, Adam, AdamW, serializable optimizer state, global gradient norm clipping |
 | `gguf` | Lazy GGUF reader, writer, dequantization and packed matrix-vector operations |
 | `llama` | Native Llama inference, SentencePiece, KV sessions, small-model training and GGUF export |
+| `pretrained` | Managed local GGUF runtime, model-specific tokenizers/templates, structured calls, streaming and pinned model catalog |
+| `chat` | Conversation messages, function schemas, typed calls, responses and stream deltas |
 | `lm` | Native character-model architecture, vocabulary, training and compressed checkpoints |
 | `transformer` | Native byte decoder, pretrained weights, training, resumable checkpoints and UTF-8 generation |
 | `tokenizer` | Lossless byte tokenization, BOS token and UTF-8 prefix validation |

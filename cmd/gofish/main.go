@@ -54,7 +54,7 @@ func run(ctx context.Context, args []string, in io.Reader, out, diagnostics io.W
 	rate := flags.Float64("lr", 0, "learning rate; 0 uses backend default")
 	resume := flags.Bool("resume", false, "resume transformer optimizer state from checkpoint")
 	decay := flags.Float64("decay", 0, "AdamW weight decay for transformers")
-	contextSize := flags.Int("context", 0, "new model context length; 0 uses architecture default")
+	contextSize := flags.Int("context", 0, "model context length; 0 uses backend default")
 	width := flags.Int("width", 32, "new transformer embedding width")
 	heads := flags.Int("heads", 4, "new transformer attention heads")
 	kvHeads := flags.Int("kv-heads", 0, "new Llama key/value heads; 0 uses head count")
@@ -62,6 +62,8 @@ func run(ctx context.Context, args []string, in io.Reader, out, diagnostics io.W
 	feedForward := flags.Int("ff", 0, "new model feed-forward width; 0 uses architecture default")
 	embedding := flags.Int("embedding", 8, "embedding width for a new native model")
 	hidden := flags.Int("hidden", 64, "hidden width for a new native model")
+	serverPath := flags.String("llama-server", "", "local llama-server executable path")
+	gpuLayers := flags.Int("gpu-layers", 0, "pretrained GGUF layers to offload to GPU")
 	host := flags.String("host", "http://localhost:11434", "Ollama server URL")
 	timeout := flags.Duration("timeout", 10*time.Minute, "operation timeout")
 	if err := flags.Parse(args[1:]); err != nil {
@@ -111,13 +113,14 @@ func run(ctx context.Context, args []string, in io.Reader, out, diagnostics io.W
 	} else if strings.HasPrefix(*modelName, "ollama:") {
 		model, err = gofish.Ollama(strings.TrimPrefix(*modelName, "ollama:"), ollama.WithBaseURL(*host))
 	} else if strings.HasSuffix(strings.ToLower(*modelName), ".gguf") {
-		model, err = gofish.LoadGGUF(*modelName, gofish.GGUFOptions{ContextSize: *contextSize})
+		model, err = gofish.LoadGGUFContext(ctx, *modelName, gofish.GGUFOptions{ContextSize: *contextSize, ServerPath: *serverPath, GPULayers: *gpuLayers})
 	} else {
 		model, err = gofish.Load(*modelName)
 	}
 	if err != nil {
 		return err
 	}
+	defer model.Close()
 	options := []gofish.GenerateOption{gofish.WithMaxTokens(*tokens), gofish.WithTemperature(*temperature), gofish.WithSeed(*seed), gofish.WithTopK(*topK), gofish.WithTopP(*topP)}
 	switch args[0] {
 	case "generate":
@@ -157,7 +160,7 @@ func run(ctx context.Context, args []string, in io.Reader, out, diagnostics io.W
 		return nil
 	case "chat":
 		if !model.Capabilities().Chat {
-			return fmt.Errorf("gofish: chat requires -model ollama:<name>; use generate for bundled models")
+			return fmt.Errorf("gofish: chat requires a pretrained GGUF or ollama:<name>; use generate for bundled models")
 		}
 		scanner := bufio.NewScanner(in)
 		scanner.Buffer(make([]byte, 4096), 1<<20)

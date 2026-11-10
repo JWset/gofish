@@ -1,5 +1,13 @@
 # Changes
 
+## Local open-weight pretrained models
+
+- Add a managed, authenticated loopback llama.cpp backend for Qwen3, Gemma and SmolLM GGUF families.
+- Preserve native models and route supported pretrained GGUF files through the existing Load/LoadGGUF, Generate and Chat APIs.
+- Add context, runtime path, GPU layer, template and startup controls; add cancellable loading and explicit Close.
+- Add runtime-backed tokenization/template methods, structured function calls, JSON-schema output and streaming deltas.
+- Add native and constrained-JSON tool modes, per-architecture contract tests, pinned real-checkpoint integration tests and provenance hashes.
+
 ## CUDA training
 
 - Add `TrainOptions.Device`: `gofish.CPU` (default) or `gofish.GPU`.

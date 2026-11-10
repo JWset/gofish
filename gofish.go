@@ -1,6 +1,5 @@
-// Package gofish combines PyTorch-inspired tensors, autograd and neural network
-// training with a small language-model API. Native models are CPU-only float64;
-// larger pretrained models can run through a separately installed Ollama server.
+// Package gofish combines tensors, autograd, CPU/CUDA transformer training, and
+// local pretrained GGUF inference with an optional Ollama adapter.
 package gofish
 
 import (
@@ -10,11 +9,14 @@ import (
 	"os"
 	"strings"
 
+	"github.com/JWset/gofish/chat"
 	"github.com/JWset/gofish/generation"
+	"github.com/JWset/gofish/gguf"
 	"github.com/JWset/gofish/internal/checkpoint"
 	"github.com/JWset/gofish/llama"
 	"github.com/JWset/gofish/lm"
 	"github.com/JWset/gofish/ollama"
+	"github.com/JWset/gofish/pretrained"
 	"github.com/JWset/gofish/tensor"
 	"github.com/JWset/gofish/training"
 	"github.com/JWset/gofish/transformer"
@@ -44,6 +46,14 @@ type History = lm.History
 type Step = lm.Step
 type GenerateOption = generation.Option
 type Message = ollama.Message
+type Tool = chat.Tool
+type Function = chat.Function
+type ToolCall = chat.ToolCall
+type FunctionCall = chat.FunctionCall
+type ChatOptions = chat.Options
+type ChatResponse = chat.Response
+type ChatDelta = chat.Delta
+type PretrainedInfo = pretrained.Info
 
 var WithMaxTokens = generation.WithMaxTokens
 var WithTemperature = generation.WithTemperature
@@ -53,9 +63,11 @@ var WithTopP = generation.WithTopP
 var WithStop = generation.WithStop
 var WithStream = generation.WithStream
 
+var ErrUnsupportedArchitecture = pretrained.ErrArchitecture
+
 var ErrUnsupported = errors.New("gofish: operation is unsupported by this model backend")
 
-// Model wraps a native character model, native byte transformer, or Ollama client.
+// Model wraps a native trainable model, a local pretrained GGUF runtime, or Ollama.
 // Native premade models can be fine-tuned; Ollama models support inference only.
 type nativeModel interface {
 	Generate(context.Context, string, ...generation.Option) (string, error)
@@ -68,6 +80,7 @@ type Model struct {
 	native  nativeModel
 	remote  *ollama.Model
 	weights *llama.Model
+	local   *pretrained.Model
 }
 type Capabilities struct {
 	Train bool
@@ -77,6 +90,9 @@ type Capabilities struct {
 }
 
 func (m *Model) Capabilities() Capabilities {
+	if m.local != nil {
+		return Capabilities{Chat: true}
+	}
 	if m.weights != nil {
 		return Capabilities{Train: m.weights.CanTrain(), Save: m.weights.CanTrain()}
 	}
@@ -142,8 +158,17 @@ func Load(nameOrPath string) (*Model, error) {
 	return &Model{native: model}, nil
 }
 
-// LoadGGUF loads the supported Llama GGUF subset directly, without an external runtime.
+// LoadGGUF preserves the native fixture backend and dispatches pretrained architectures
+// to a managed local llama.cpp runtime. Runtime:"native" explicitly selects the native subset.
 func LoadGGUF(path string, options ...GGUFOptions) (*Model, error) {
+	return LoadGGUFContext(context.Background(), path, options...)
+}
+
+// LoadGGUFContext is LoadGGUF with cancellation during local-runtime startup.
+func LoadGGUFContext(ctx context.Context, path string, options ...GGUFOptions) (*Model, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if len(options) > 1 {
 		return nil, fmt.Errorf("gofish: LoadGGUF accepts at most one options struct")
 	}
@@ -151,6 +176,23 @@ func LoadGGUF(path string, options ...GGUFOptions) (*Model, error) {
 	if len(options) == 1 {
 		config = options[0]
 	}
+	if config.Runtime != "" && config.Runtime != "auto" && config.Runtime != "native" && config.Runtime != "llama.cpp" {
+		return nil, fmt.Errorf("gofish: Runtime must be auto, native, or llama.cpp")
+	}
+	useLocal := config.Runtime == "llama.cpp"
+	if config.Runtime == "" || config.Runtime == "auto" {
+		f, err := gguf.Open(path)
+		if err != nil {
+			return nil, err
+		}
+		arch, tok := f.String("general.architecture", ""), f.String("tokenizer.ggml.model", "")
+		useLocal = arch != "llama" || (tok != "llama" && tok != "gofish-byte") || f.String("tokenizer.chat_template", "") != ""
+		f.Close()
+	}
+	if useLocal {
+		return LoadPretrained(ctx, path, config)
+	}
+
 	m, err := llama.LoadWithOptions(path, config)
 	if err != nil {
 		return nil, err
@@ -165,7 +207,7 @@ func NewLlama(config LlamaConfig) (*Model, error) {
 	return &Model{weights: m}, nil
 }
 
-// NewTransformer initializes a byte-tokenized decoder for native CPU training.
+// NewTransformer initializes a byte-tokenized decoder for native CPU/CUDA training.
 func NewTransformer(config TransformerConfig) (*Model, error) {
 	m, err := transformer.New(config)
 	if err != nil {
@@ -176,6 +218,9 @@ func NewTransformer(config TransformerConfig) (*Model, error) {
 
 // ParameterCount reports native parameter count; Ollama models are external and return zero.
 func (m *Model) ParameterCount() int {
+	if m.local != nil {
+		return m.local.Info().ParameterCount
+	}
 	if m.weights != nil {
 		return m.weights.ParameterCount()
 	}
@@ -203,6 +248,9 @@ func Ollama(name string, options ...ollama.Option) (*Model, error) {
 	return &Model{remote: m}, nil
 }
 func (m *Model) Generate(ctx context.Context, prompt string, options ...GenerateOption) (string, error) {
+	if m.local != nil {
+		return m.local.Generate(ctx, prompt, options...)
+	}
 	if m.weights != nil {
 		return m.weights.Generate(ctx, prompt, options...)
 	}
@@ -215,6 +263,9 @@ func (m *Model) Generate(ctx context.Context, prompt string, options ...Generate
 	return "", fmt.Errorf("gofish: uninitialized model")
 }
 func (m *Model) Train(ctx context.Context, text string, options TrainOptions) (History, error) {
+	if m.local != nil {
+		return History{}, fmt.Errorf("%w: managed pretrained GGUF models support inference only", ErrUnsupported)
+	}
 	if m.weights != nil {
 		if !m.weights.CanTrain() {
 			return History{}, fmt.Errorf("%w: native GGUF training is limited to 2 million parameters", ErrUnsupported)
@@ -227,6 +278,9 @@ func (m *Model) Train(ctx context.Context, text string, options TrainOptions) (H
 	return m.native.Train(ctx, text, options)
 }
 func (m *Model) Save(path string) error {
+	if m.local != nil {
+		return fmt.Errorf("%w: managed pretrained GGUF models use their original weight file", ErrUnsupported)
+	}
 	if m.weights != nil {
 		if !m.weights.CanTrain() {
 			return fmt.Errorf("%w: GGUF export is limited to 2 million parameters", ErrUnsupported)
@@ -245,8 +299,11 @@ func (m *Model) Pull(ctx context.Context) error {
 	return m.remote.Pull(ctx)
 }
 func (m *Model) Chat(ctx context.Context, messages []Message, options ...GenerateOption) (string, error) {
+	if m.local != nil {
+		return m.local.Chat(ctx, messages, options...)
+	}
 	if m.remote == nil {
-		return "", fmt.Errorf("%w: chat requires an Ollama model; native models generate continuations", ErrUnsupported)
+		return "", fmt.Errorf("%w: chat requires a pretrained GGUF or Ollama model; native demo models generate continuations", ErrUnsupported)
 	}
 	return m.remote.Chat(ctx, messages, options...)
 }
@@ -259,3 +316,65 @@ func (m *Model) Loss(ctx context.Context, text string) (float64, error) {
 	}
 	return m.native.Loss(ctx, text)
 }
+
+// Close releases the managed local runtime. It is safe to call more than once.
+func (m *Model) Close() error {
+	if m.local != nil {
+		return m.local.Close()
+	}
+	return nil
+}
+func (m *Model) PretrainedInfo() (PretrainedInfo, error) {
+	if m.local != nil {
+		return m.local.Info(), nil
+	}
+	return PretrainedInfo{}, ErrUnsupported
+}
+
+// ChatStructured returns text and typed function calls; it never executes functions.
+func (m *Model) ChatStructured(ctx context.Context, messages []Message, config ChatOptions, options ...GenerateOption) (ChatResponse, error) {
+	if m.local != nil {
+		return m.local.ChatStructured(ctx, messages, config, options...)
+	}
+	return ChatResponse{}, fmt.Errorf("%w: structured chat requires a local pretrained GGUF model", ErrUnsupported)
+}
+func (m *Model) Tokenize(ctx context.Context, text string) ([]int, error) {
+	if m.local != nil {
+		return m.local.Tokenize(ctx, text)
+	}
+	return nil, ErrUnsupported
+}
+func (m *Model) Detokenize(ctx context.Context, tokens []int) (string, error) {
+	if m.local != nil {
+		return m.local.Detokenize(ctx, tokens)
+	}
+	return "", ErrUnsupported
+}
+func (m *Model) ApplyChatTemplate(ctx context.Context, messages []Message) (string, error) {
+	if m.local != nil {
+		return m.local.ApplyChatTemplate(ctx, messages)
+	}
+	return "", ErrUnsupported
+}
+
+// LoadPretrained loads a supported GGUF into a managed local runtime with cancellable startup.
+func LoadPretrained(ctx context.Context, path string, options ...GGUFOptions) (*Model, error) {
+	if len(options) > 1 {
+		return nil, fmt.Errorf("gofish: LoadPretrained accepts at most one options struct")
+	}
+	var c GGUFOptions
+	if len(options) == 1 {
+		c = options[0]
+	}
+	if c.Runtime != "" && c.Runtime != "auto" && c.Runtime != "llama.cpp" {
+		return nil, fmt.Errorf("gofish: LoadPretrained requires the llama.cpp runtime")
+	}
+	model, err := pretrained.Load(ctx, path, pretrained.Options{ContextSize: c.ContextSize, MaxModelBytes: c.MaxModelBytes, MaxCacheBytes: c.MaxCacheBytes, ServerPath: c.ServerPath, GPULayers: c.GPULayers, Threads: c.Threads, ChatTemplate: c.ChatTemplate, StartupTimeout: c.StartupTimeout})
+	if err != nil {
+		return nil, err
+	}
+	return &Model{local: model}, nil
+}
+
+// PretrainedModels lists reference GGUF checkpoints with pinned upstream revisions.
+func PretrainedModels() []pretrained.Preset { return pretrained.Models() }
